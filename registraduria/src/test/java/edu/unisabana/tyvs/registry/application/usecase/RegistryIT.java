@@ -11,6 +11,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 /**
  * PRUEBA DE INTEGRACION: el caso de uso {@link Registry} contra una base de
@@ -75,4 +76,40 @@ public class RegistryIT {
         // Assert: la unicidad la garantiza la base de datos, no el mock
         assertEquals(RegisterResult.DUPLICATED, result2);
     }
+
+    @Test
+    public void shouldReturnUnderageWhenAgeIsSeventeen() throws Exception {
+        // Arrange
+        Person p = new Person("Luis", 200, 17, Gender.MALE, true);
+        // Act
+        RegisterResult result = registry.registerVoter(p);
+        // Assert
+        assertEquals(RegisterResult.UNDERAGE, result);
+        assertFalse(repo.existsById(200));
+    }
+
+    @Test
+    public void shouldReturnInvalidAgeWhenAgeIsNegative() throws Exception {
+        Person p = new Person("Marta", 201, -1, Gender.FEMALE, true);
+        RegisterResult result = registry.registerVoter(p);
+        assertEquals(RegisterResult.INVALID_AGE, result);
+        assertFalse(repo.existsById(201));
+    }
+
+    @Test
+    public void shouldReturnInvalidAgeWhenAgeIsOverLimit() throws Exception {
+        Person p = new Person("Carlos", 202, 121, Gender.MALE, true);
+        RegisterResult result = registry.registerVoter(p);
+        assertEquals(RegisterResult.INVALID_AGE, result);
+    }
+
+    @Test
+    public void shouldReturnDeadWhenPersonIsNotAlive() throws Exception {
+        Person p = new Person("Julia", 203, 40, Gender.FEMALE, false);
+        RegisterResult result = registry.registerVoter(p);
+        assertEquals(RegisterResult.DEAD, result);
+        assertFalse(repo.existsById(203));
+    }
 }
+
+
