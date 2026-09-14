@@ -1,127 +1,67 @@
-# Registro de Defectos — EJEMPLO RESUELTO
+# Registro de Defectos — Taller de Pruebas de Integración y Sistema
 
-> **Este archivo es un ejemplo del profesor**, no su entrega. Muestra el ciclo de vida completo de un defecto: detectado, analizado y cerrado con la prueba que lo verifica.
-> Para su taller parta de [`defectos_template.md`](defectos_template.md) y documente los defectos que **usted** encuentre.
+Este documento recopila los **defectos reales detectados durante el desarrollo y ejecución de las pruebas** del proyecto **Registraduría**, encontrados por mí durante la implementación de las suites de pruebas de sistema y de bases de datos reales.
 
-Este documento recopila los **defectos detectados durante las pruebas unitarias, de integración y de sistema** del proyecto **Registraduría**.
-Cada defecto se documenta de manera estructurada para facilitar su análisis, trazabilidad y corrección.
+> Nota: el proyecto base clonado ya traía corregidos los defectos de dominio documentados en `defectos_template.md` / el ejemplo del profesor (edad negativa, persona fallecida, duplicados, mocks, HTTP 500 por género inválido) — verificado revisando `Registry.java` y confirmando que `RegistryIT` y `RegistryWithMockTest` ya cubren esos casos en verde desde la primera ejecución. Los defectos documentados a continuación son distintos: los encontré yo mismo al extender la suite de pruebas de sistema (HTTP) y al configurar Testcontainers.
 
 ---
 
-## Formato 1: Lista detallada (narrativa)
+## Defecto 01 — Campo numérico faltante no se rechaza (queda en 0 silenciosamente)
 
-### Defecto 01 — Falta de validación de edad negativa *(Prueba unitaria)*
-
-- **Capa afectada:** Dominio (`Registry.registerVoter`)
-- **Caso de prueba:** Registro de persona con edad `-1`.
+- **Capa afectada:** Delivery / validación de entrada (`PersonDTO`, `RegistryController`)
+- **Caso de prueba:** Envío de un JSON de registro **sin el campo `age`**.
 - **Entrada:**
-`Person(name="Juan", id=101, age=-1, gender=MALE, alive=true)`
-- **Resultado esperado:** `INVALID_AGE` (una edad negativa es un dato imposible, no una persona menor)
-- **Resultado obtenido:** `UNDERAGE`
-- **Causa probable:** `Registry` evaluaba `age < MIN_AGE` sin distinguir entre "menor de edad" y "edad imposible". Una edad de `-1` caía en la misma rama que una de `17`.
-- **Tipo de prueba:** Unitaria (dominio puro)
-- **Estado:** **Resuelto** — se añadió `INVALID_AGE` al enum y la regla `age < 0 || age > MAX_AGE` **antes** de la de menor de edad. Verificado por `RegistryWithMockTest.shouldReturnInvalidAgeWhenAgeIsNegative()` y `shouldReturnInvalidAgeWhenAgeExceedsMaximum()`.
-- **Prioridad:** Alta
-
-> **Por qué no era un detalle cosmético.** Las dos clases de equivalencia se parecen en el código y no se parecen en nada para quien usa el sistema: a una persona de 17 años se le dice *"espere a cumplir 18"*, mientras que un registro con `-1` significa que **alguien capturó mal el dato** y hay que corregirlo. Devolver `UNDERAGE` en ambos casos le da al segundo un consejo inútil.
->
-> El orden de las dos comprobaciones también importa. Si se pregunta primero `age < MIN_AGE`, el `-1` entra por esa rama y `INVALID_AGE` queda inalcanzable — el enum tendría la constante y el sistema no la usaría nunca.
->
-> Este defecto era además una **inconsistencia entre talleres**: el de pruebas unitarias ya distinguía los dos casos y este no, de modo que la misma Registraduría se comportaba distinto según el taller desde el que se mirara. Los dos describen ahora el mismo dominio.
-
-**Valor límite asociado:** la frontera entre las dos clases es la **edad 0** — un año menos es imposible, y `0` es el dato correcto de un recién nacido que no puede votar. Está cubierta por `RegistryWithMockTest.shouldReturnUnderageWhenAgeIsZero()`. Sin esa prueba, cambiar `< 0` por `<= 0` no rompe nada y la mutación sobrevive.
-
----
-
-### Defecto 02 — Registro de persona fallecida *(Prueba unitaria)*
-
-- **Capa afectada:** Dominio (`Registry.registerVoter`)
-- **Caso de prueba:** Persona con `alive=false`.
-- **Entrada:**
-`Person(name="Ana", id=102, age=45, gender=FEMALE, alive=false)`
-- **Resultado esperado:** `DEAD`
-- **Resultado obtenido:** `VALID`
-- **Causa probable:** No se valida correctamente la condición `alive=false`.
-- **Tipo de prueba:** Unitaria (regla de negocio)
-- **Estado:** **Resuelto** — `Registry.registerVoter` evalúa `if (!p.isAlive()) return RegisterResult.DEAD;`. Verificado por `RegistryWithMockTest.shouldReturnDeadWhenPersonIsNotAlive()`.
-- **Prioridad:** Media
-
----
-
-### Defecto 03 — No se detectan duplicados *(Prueba de integración con H2)*
-
-- **Capa afectada:** Infraestructura (`RegistryRepository`)
-- **Caso de prueba:** Dos registros con el mismo `id`.
-- **Entradas:**
-  - Persona 1 → `Person(name="Carlos", id=200, age=30, gender=MALE, alive=true)`
-  - Persona 2 → `Person(name="Carla", id=200, age=25, gender=FEMALE, alive=true)`
-- **Resultado esperado:**
-  - Persona 1 → `VALID`
-  - Persona 2 → `DUPLICATED`
-- **Resultado obtenido:**
-  - Persona 1 → `VALID`
-  - Persona 2 → `VALID`
-- **Causa probable:** El método `existsById()` del repositorio no verifica correctamente la existencia previa del registro.
-- **Tipo de prueba:** Integración (H2 + capa de aplicación)
-- **Estado:** **Resuelto** — `RegistryRepository.existsById` consulta la tabla antes de insertar. Verificado por `RegistryIT.shouldPersistValidVoterAndRejectDuplicates()` (H2) y `RegistryRepositoryPostgresIT.shouldPersistAndRejectDuplicate()` (PostgreSQL real).
-- **Prioridad:** Alta
-
----
-
-### Defecto 04 — Fallo en simulación con mock *(Prueba de integración con Mockito)*
-
-- **Capa afectada:** Aplicación (`Registry`)
-- **Caso de prueba:** Registro con `id` duplicado en un repositorio simulado.
-- **Configuración:**
-
-```java
-when(repo.existsById(7)).thenReturn(true);
-```
-
-- **Resultado esperado:** `DUPLICATED`
-- **Resultado obtenido:** `NullPointerException`
-- **Causa probable:** Dependencia `RegistryRepositoryPort` no inicializada correctamente durante el mock.
-- **Tipo de prueba:** Integración (mock)
-- **Estado:** **Resuelto** — el escenario funciona; `RegistryWithMockTest.shouldWrapPersistenceFailure()` verifica que el fallo del puerto se traduce a `RegistryPersistenceException`.
-- **Prioridad:** Media
-
----
-
-### Defecto 05 — Error HTTP 500 no manejado *(Prueba de sistema REST)*
-
-- **Capa afectada:** Delivery (`RegistryController`)
-- **Caso de prueba:** Envío de JSON con campo `gender` inválido.
-- **Entrada:**
-
 ```json
-{ "name": "Laura", "id": 500, "age": 20, "gender": "OTHER", "alive": true }
+{ "name": "Incompleto", "id": 105, "gender": "MALE", "alive": true }
 ```
-
-- **Resultado esperado:** `HTTP 400` (Bad Request)
-- **Resultado obtenido:** `HTTP 500` (Internal Server Error)
-- **Causa probable:** Falta de validación o manejo de excepción `IllegalArgumentException` en el controlador.
-- **Tipo de prueba:** Sistema (TestRestTemplate)
-- **Estado:** **Resuelto** — `RegistryExceptionHandler` traduce `IllegalArgumentException` a **400 Bad Request**: un género fuera del enum es error del cliente, no del servidor. Verificado por `RegistryControllerIT.shouldReturnBadRequestWhenGenderIsNotValid()`.
-- **Prioridad:** Alta
+- **Resultado esperado:** `HTTP 400 Bad Request` — un registro sin edad es una entrada inválida o inconsistente, según el punto 5 de la rúbrica del taller (entrada inválida → 400/422).
+- **Resultado obtenido (antes de la corrección):** `HTTP 200 OK` con cuerpo `"UNDERAGE"`. El campo `age`, al estar declarado como `int` primitivo en `PersonDTO`, no puede representar la ausencia del dato: Jackson lo deserializa como `0` en lugar de rechazar la petición, y `0` cae dentro de la regla de negocio como "menor de edad".
+- **Causa probable:** Uso de tipos primitivos (`int`) en el DTO de entrada en vez de tipos envolventes (`Integer`). Un `int` nunca puede ser `null`, así que cualquier anotación `@NotNull` sobre ese campo es inalcanzable: para cuando la validación se ejecuta, el valor ya es `0`, no `null`.
+- **Tipo de prueba que lo evidenció:** Sistema (HTTP, `TestRestTemplate`) — se detectó al diseñar el caso "body incompleto" exigido por la rúbrica, antes de tener un test automatizado que lo cubriera.
+- **Estado:** **Resuelto.**
+    - Se cambiaron `id` y `age` de `int` a `Integer` en `PersonDTO`.
+    - Se agregaron anotaciones `@NotNull`, `@NotBlank` y `@Positive` (paquete `javax.validation.constraints`, acorde a Spring Boot 2.7.18).
+    - Se agregó `@Valid` en la firma de `RegistryController.register(...)`.
+    - Se agregó un `@ExceptionHandler(MethodArgumentNotValidException.class)` en `RegistryExceptionHandler` que traduce el fallo de validación a `400 Bad Request`.
+    - Verificado por `RegistryControllerIT.shouldReturnBadRequestWhenBodyIsIncomplete()`.
+- **Prioridad:** Alta — sin esta corrección, cualquier cliente que omitiera un campo numérico obtenía una respuesta exitosa con un resultado de negocio incorrecto, en vez de un error claro indicando el dato faltante.
 
 ---
 
-## Formato 2: Tabla de defectos (bug tracking)
+## Defecto 02 — Pruebas de Testcontainers se saltan silenciosamente por incompatibilidad de versión de API con Docker
+
+- **Capa afectada:** Infraestructura de pruebas (configuración de entorno, no código de producción)
+- **Caso de prueba:** Ejecución de `RegistryRepositoryPostgresIT` (5 pruebas contra PostgreSQL real vía Testcontainers) con Docker Desktop 4.90 corriendo y con el motor ("Engine running") activo.
+- **Resultado esperado:** Las 5 pruebas se ejecutan contra un contenedor real de `postgres:16-alpine`.
+- **Resultado obtenido:** Las 5 pruebas se reportaban como `Skipped` (no fallidas) en cada ejecución de `mvn clean verify`, con el siguiente error en el log:
+```
+ERROR --- o.t.d.DockerClientProviderStrategy : Could not find a valid Docker environment.
+```
+a pesar de que `docker version` y el estado de Docker Desktop confirmaban que el motor estaba activo.
+- **Causa probable:** La librería `docker-java` (dependencia transitiva de Testcontainers 1.19.8) intenta negociar por defecto una versión de la API de Docker anterior a la que expone el Docker Engine incluido en Docker Desktop 4.90, y la negociación falla de forma silenciosa — la extensión `@EnabledIf("hayDocker")` interpreta esa falla como "Docker no disponible" y salta la clase completa en lugar de fallar con un error explícito.
+- **Tipo de prueba que lo evidenció:** Bases de datos reales (Testcontainers) — el defecto no está en el código de producción ni en las pruebas en sí, sino en la configuración del cliente Docker usado por la librería de pruebas.
+- **Estado:** **Resuelto.** Se creó el archivo `src/test/resources/docker-java.properties` fijando explícitamente la versión de la API:
+```properties
+api.version=1.44
+```
+Tras agregarlo, las 5 pruebas de `RegistryRepositoryPostgresIT` se ejecutan y pasan sin saltarse (`Tests run: 18, Failures: 0, Errors: 0, Skipped: 0` en el resumen combinado de `mvn clean verify`).
+- **Prioridad:** Alta para el desarrollo local — sin esta corrección, un desarrollador con una versión reciente de Docker Desktop puede creer que "no tiene pruebas de Testcontainers" cuando en realidad nunca se ejecutan, y el build reporta éxito (`BUILD SUCCESS`) de forma engañosa al no distinguir "saltado por diseño" de "saltado por una incompatibilidad de configuración".
+
+---
+
+## Tabla resumen
 
 | ID | Caso de Prueba | Capa | Resultado Esperado | Resultado Obtenido | Tipo | Estado | Prioridad |
-|----|----------------|------|--------------------|--------------------|------|----------|------------|
-| 01 | Edad negativa | Dominio | `INVALID_AGE` | `UNDERAGE` | Unitaria | Resuelto | Alta |
-| 02 | Persona muerta | Dominio | `DEAD` | `VALID` | Unitaria | Resuelto | Media |
-| 03 | Duplicado por ID | Infraestructura | `DUPLICATED` | `VALID` | Integración | Resuelto | Alta |
-| 04 | Fallo de persistencia | Aplicación | `RegistryPersistenceException` | `NullPointerException` | Unitaria (mock) | Resuelto | Media |
-| 05 | Error HTTP 500 | Delivery | `HTTP 400` | `HTTP 500` | Sistema (REST) | Resuelto | Alta |
+|----|----------------|------|--------------------|--------------------|------|--------|-----------|
+| 01 | Body sin campo `age` | Delivery / DTO | `HTTP 400` | `HTTP 200` con `"UNDERAGE"` | Sistema (HTTP) | Resuelto | Alta |
+| 02 | Suite Testcontainers con Docker activo | Infraestructura de pruebas | 5 pruebas ejecutadas contra PostgreSQL real | 5 pruebas `Skipped` silenciosamente | Testcontainers | Resuelto | Alta |
 
 ---
 
 ## Convenciones de Estado
 
 | Estado | Significado |
-|---------|-------------|
+|---|---|
 | **Abierto** | El defecto fue detectado pero no corregido. |
 | **En progreso** | El defecto se encuentra en análisis o corrección. |
 | **Resuelto** | El defecto fue corregido y validado mediante pruebas. |
@@ -130,6 +70,6 @@ when(repo.existsById(7)).thenReturn(true);
 
 ## Observaciones
 
-- Los defectos detectados evidencian la importancia de **mantener pruebas unitarias robustas** antes de pasar a integración.
-- La validación cruzada entre pruebas con mocks e integración real (H2) permitió identificar inconsistencias en el flujo de persistencia.
-- Los errores en las pruebas REST destacan la necesidad de implementar **manejadores globales de excepciones (ControllerAdvice)** para mejorar la estabilidad del sistema.
+- El Defecto 01 muestra por qué la elección de tipos en un DTO (`int` vs `Integer`) no es un detalle menor: afecta directamente qué puede y qué no puede detectar una anotación de validación como `@NotNull`.
+- El Defecto 02 no es un defecto de la aplicación bajo prueba, sino de la infraestructura de pruebas misma — se documenta porque ilustra un riesgo real: un build "verde" con pruebas saltadas puede ocultar que una técnica completa (bases de datos reales) nunca se está ejecutando.
+- Ambos defectos fueron encontrados de forma incremental, mientras se completaban los criterios de la rúbrica del taller (validación de entrada HTTP y ejecución real de Testcontainers), no mediante un plan de pruebas exploratorias independiente.

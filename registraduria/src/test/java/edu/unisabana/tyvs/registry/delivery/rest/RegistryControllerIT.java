@@ -105,4 +105,11 @@ public class RegistryControllerIT {
 
         assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
+    @Test
+    public void shouldReturnBadRequestWhenBodyIsIncomplete() {
+        ResponseEntity<String> resp = register(
+                "{\"name\":\"Incompleto\",\"id\":105,\"gender\":\"MALE\",\"alive\":true}");
+
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
+    }
 }
