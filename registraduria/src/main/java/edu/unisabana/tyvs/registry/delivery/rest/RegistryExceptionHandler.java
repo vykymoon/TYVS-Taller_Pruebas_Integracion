@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 
 /**
  * Traduce excepciones a codigos HTTP.
@@ -36,5 +37,10 @@ public class RegistryExceptionHandler {
     @ExceptionHandler(RegistryPersistenceException.class)
     public ResponseEntity<String> handlePersistence(RegistryPersistenceException ex) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("PERSISTENCE_ERROR");
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<String> handleValidation(MethodArgumentNotValidException ex) {
+        return ResponseEntity.badRequest().body("INVALID_INPUT");
     }
 }

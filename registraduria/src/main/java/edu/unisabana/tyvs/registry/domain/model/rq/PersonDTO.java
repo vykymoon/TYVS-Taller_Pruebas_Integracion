@@ -1,16 +1,29 @@
 package edu.unisabana.tyvs.registry.domain.model.rq;
 
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+import javax.validation.constraints.Positive;
 public class PersonDTO {
+
+    @NotBlank(message = "name no puede estar vacio")
     private String name;
-    private int id;
-    private int age;
+
+    @NotNull(message = "id es obligatorio")
+    @Positive(message = "id debe ser un numero positivo")
+    private Integer id;
+
+    @NotNull(message = "age es obligatorio")
+    private Integer age;
+
+    @NotBlank(message = "gender no puede estar vacio")
     private String gender;
+
     private boolean alive;
 
     public PersonDTO() {
     }
 
-    public PersonDTO(String name, int id, int age, String gender, boolean alive) {
+    public PersonDTO(String name, Integer id, Integer age, String gender, boolean alive) {
         this.name = name;
         this.id = id;
         this.age = age;
@@ -22,11 +35,11 @@ public class PersonDTO {
         return name;
     }
 
-    public int getId() {
+    public Integer getId() {
         return id;
     }
 
-    public int getAge() {
+    public Integer getAge() {
         return age;
     }
 
@@ -42,11 +55,11 @@ public class PersonDTO {
         this.name = name;
     }
 
-    public void setId(int id) {
+    public void setId(Integer id) {
         this.id = id;
     }
 
-    public void setAge(int age) {
+    public void setAge(Integer age) {
         this.age = age;
     }
 
